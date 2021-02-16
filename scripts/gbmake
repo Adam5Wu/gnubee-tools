@@ -29,7 +29,7 @@ export GNUBEE_INITRAMFS_FILES=`realpath $GNUBEE_KERNEL_OBJECTS/initramfs-files.t
 export GNUBEE_SSH_HOST
 help() {
 cat << END
-Usage: gbmake [ defconfig* | headers | initramfs | modules | gnubee.bin | ...]
+Usage: gbmake [ defconfig* | headers | initramfs | modules | image | ...]
 gbmake behaves exactly like "make" unless the first argument is a known
 command.  Known commands are:
  defconfig*: choose a default config file from ${GNUBEE_CONFIG_DIR}
@@ -37,7 +37,7 @@ command.  Known commands are:
  initramfs: create initramfs tree in ${GNUBEE_INITRAMFS_TREE} to be included in kernel
  modules: runs "make modules" then installs modules into the initramfs
  extern: makes external modules listed in config file
- gnubee.bin: "make uImage", then copy to /srv/tftpboot and $GNUBEE_BUILD_DIR
+ image: "make uImage", then copy to /srv/tftpboot and $GNUBEE_BUILD_DIR
  firmware: run all of the above in the correct order
  help: display this message
  -h: display help message
@@ -223,16 +223,17 @@ gnubee_bin() {
 		echo >&2 "Please run 'gbmake initramfs' first"
 		exit 1
 	fi
-	make O="$GNUBEE_KERNEL_OBJECTS" uImage.bin || exit 1
+	make O="$GNUBEE_KERNEL_OBJECTS" uImage.lzma || exit 1
 	if [ -f  "$GNUBEE_KERNEL_OBJECTS/Module.symvers-full" ]; then
 		# "make uImage" removes module info from Module.symvers.
 		cp "$GNUBEE_KERNEL_OBJECTS/Module.symvers-full"	\
 		   "$GNUBEE_KERNEL_OBJECTS/Module.symvers" 
 	fi
-	if cp 2> /dev/null "$GNUBEE_KERNEL_OBJECTS/arch/mips/boot/uImage.bin" \
-		/srv/tftpboot/GB-PCx_uboot.bin
+	UIMAGE_PATH=arch/mips/boot
+	if cp 2> /dev/null "$GNUBEE_KERNEL_OBJECTS/${UIMAGE_PATH}/uImage.lzma" \
+		/srv/tftpboot/uboot.bin
 	then
-		ls -lh /srv/tftpboot/GB-PCx_uboot.bin
+		ls -lh /srv/tftpboot/uboot.bin
 	fi
 	V=`sed -n 's/^VERSION = //p' Makefile`
 	P=`sed -n 's/^PATCHLEVEL = //p' Makefile`
@@ -243,29 +244,20 @@ gnubee_bin() {
 	else
 	    vers="$V.$P.$S$X"
 	fi
-	if grep "^CONFIG_DTB_GNUBEE2=y" $GNUBEE_KERNEL_OBJECTS/.config > /dev/null; then
-	    suffix="${vers}-gbpc2"
-	else
-	    if grep "^CONFIG_DTB_GNUBEE1_UBOOT=y" $GNUBEE_KERNEL_OBJECTS/.config > /dev/null; then
-		suffix="${vers}-gbpc1u"
-	    else
-	        suffix="${vers}-gbpc1"
-	    fi
-	fi
-
-	cp "$GNUBEE_KERNEL_OBJECTS/arch/mips/boot/uImage.bin" "$GNUBEE_BUILD_DIR/gnubee-${suffix}.bin"
-	ls -lh "$GNUBEE_BUILD_DIR/gnubee-${suffix}.bin"
+	mkdir -p "$GNUBEE_BUILD_DIR/uImage-${vers}"
+	cp "$GNUBEE_KERNEL_OBJECTS/${UIMAGE_PATH}/uImage.lzma" "$GNUBEE_BUILD_DIR/uImage-${vers}/${1}.bin"
+	ls -lh "$GNUBEE_BUILD_DIR/uImage-${vers}/${1}.bin"
 }
 
 gnubee_firmware() {
 	mkdir -p initramfs
 	{ [ -f "$GNUBEE_KERNEL_OBJECTS/.config" ] || gnubee_defconfig ${1}; } &&
-	make O="$GNUBEE_KERNEL_OBJECTS"  ${2--j4} &&
+	make O="$GNUBEE_KERNEL_OBJECTS"  ${2--j8} &&
 	gnubee_headers &&
 	{ [ -f "$GNUBEE_INITRAMFS_TREE"/init ] || gnubee_initramfs ; } &&
 	gnubee_modules &&
 	gnubee_extern &&
-	gnubee_bin
+	gnubee_bin ${1}
 }
 
 
@@ -276,7 +268,7 @@ case $1 in
  modules ) gnubee_modules ;;
  headers ) gnubee_headers ;;
  extern ) gnubee_extern ;;
- gnubee.bin ) gnubee_bin  ;;
+ image ) gnubee_bin  ;;
  firmware ) gnubee_firmware $2 $3;;
  help | -h ) help ;;
 
